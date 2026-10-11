@@ -1,0 +1,1550 @@
+blueprint:
+  name: Awqaat MT - Heating (schedule slots, temperature, override)
+  description: Heating controller driven by Awqaat MT time sensors. Up to 10 slots, each with its own days, an ON
+    time and an OFF time (minutes before or after any sensor). Optional temperature control, hold temperature, frost
+    protection, outside-temperature block, max run, min run/rest, unavailable alert, pause timer, and a dashboard
+    override (Auto / On / Off with an optional time limit). Windows that cross midnight work. Manual changes to
+    the heating devices are noticed and respected until the next scheduled event.
+  domain: automation
+  input:
+    devices_section:
+      name: 1. Devices
+      icon: mdi:radiator
+      collapsed: false
+      description: What the heating controls.
+      input:
+        devices:
+          name: Heating devices
+          description: Everything to switch on and off together (switches, climate entities, relays...). Also used
+            to notice when someone changes them by hand.
+          selector:
+            entity:
+              multiple: true
+    helpers_section:
+      name: 2. Helpers (create these first)
+      icon: mdi:cog
+      collapsed: false
+      description: Settings > Devices & services > Helpers. Exact settings are in the setup notes.
+      input:
+        until_entity:
+          name: Heating-until helper
+          description: Date and time helper. Remembers when the current scheduled heating window ends, so windows
+            survive midnight and restarts.
+          selector:
+            entity:
+              filter:
+              - domain: input_datetime
+        expected_entity:
+          name: Heating-expected-on helper
+          description: Toggle helper. Remembers what this automation last told the heating to do.
+          selector:
+            entity:
+              filter:
+              - domain: input_boolean
+        override_mode_entity:
+          name: Override dropdown helper
+          description: 'Dropdown helper with options exactly: Auto, On, Off, Hold (Auto first). Put it on your dashboard.'
+          selector:
+            entity:
+              filter:
+              - domain: input_select
+        override_minutes_entity:
+          name: Override minutes helper
+          description: Number helper. Minutes an On/Off override lasts, then back to Auto. 0 = until you change
+            it. Set this first, then pick On or Off.
+          selector:
+            entity:
+              filter:
+              - domain: input_number
+        pause_timer_entity:
+          name: Pause timer (optional)
+          description: While this timer is running the automation sends no commands (it keeps tracking, so it catches
+            up when the timer ends).
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: timer
+    temps_section:
+      name: 3. Temperature control (all optional)
+      icon: mdi:thermometer
+      collapsed: true
+      description: Tick a box to switch a feature on. Anything unticked is ignored.
+      input:
+        thermostats:
+          name: Thermostats / temperature sensors
+          description: Any number. The lowest reading decides when heat is needed and the highest reading stops
+            it, so the warmest room caps the heating. Climate entities use their current temperature.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+              - domain:
+                - sensor
+                - climate
+        use_temp_control:
+          name: Follow temperature during a scheduled window
+          description: 'On: heat up to the ON temperature, then pause. Off: just on/off by schedule.'
+          default: false
+          selector:
+            boolean: {}
+        on_temp:
+          name: ON temperature
+          description: Target while a scheduled window is active.
+          default: 21
+          selector:
+            number:
+              min: 5
+              max: 30
+              mode: box
+              step: 0.5
+              unit_of_measurement: °C
+        use_hold_temp:
+          name: Hold a minimum temperature outside windows
+          description: Come back on if the lowest reading falls below the OFF temperature.
+          default: false
+          selector:
+            boolean: {}
+        hold_temp:
+          name: OFF (hold) temperature
+          default: 16
+          selector:
+            number:
+              min: 5
+              max: 30
+              mode: box
+              step: 0.5
+              unit_of_measurement: °C
+        temp_margin:
+          name: Temperature margin
+          description: Stops rapid switching. After heating stops it will not restart until the warmest reading
+            is this far below the target.
+          default: 0.5
+          selector:
+            number:
+              min: 0
+              max: 3
+              mode: box
+              step: 0.1
+              unit_of_measurement: °C
+        use_frost:
+          name: Frost protection
+          description: Turn on if the lowest reading falls below the frost temperature, whatever else is set.
+          default: false
+          selector:
+            boolean: {}
+        frost_temp:
+          name: Frost temperature
+          default: 5
+          selector:
+            number:
+              min: 0
+              max: 15
+              mode: box
+              step: 0.5
+              unit_of_measurement: °C
+        override_beats_frost:
+          name: Forced OFF override beats frost protection
+          default: false
+          selector:
+            boolean: {}
+        use_outside:
+          name: Do not heat when it is warm outside
+          default: false
+          selector:
+            boolean: {}
+        outside_entity:
+          name: Outside temperature (sensor or weather entity)
+          description: A temperature sensor, or a weather entity such as weather.home (its current temperature is
+            used).
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain:
+                - sensor
+                - weather
+        outside_max:
+          name: Outside temperature limit
+          description: Heating will not START while outside is above this. A session already running carries on.
+            Frost protection is not affected.
+          default: 15
+          selector:
+            number:
+              min: 0
+              max: 40
+              mode: box
+              step: 0.5
+              unit_of_measurement: °C
+        use_forecast:
+          name: Skip heating when the day's forecast is warm
+          description: Checks the weather forecast when heating is about to start. If the forecast HIGH for that
+            day is at or above the limit below, heating does not start and the dropdown shows Hold until the next
+            scheduled event. Never interrupts a running session. Frost protection and overrides still work.
+          default: false
+          selector:
+            boolean: {}
+        forecast_entity:
+          name: Weather entity for the forecast
+          description: A weather entity that provides a daily forecast, e.g. weather.home.
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: weather
+        forecast_max:
+          name: Forecast high limit
+          description: Heating is skipped for the day if the forecast high is at or above this.
+          default: 20
+          selector:
+            number:
+              min: 0
+              max: 40
+              mode: box
+              step: 0.5
+              unit_of_measurement: °C
+    safety_section:
+      name: 4. Limits and alerts (all optional)
+      icon: mdi:shield-check
+      collapsed: true
+      input:
+        use_max_run:
+          name: Maximum run time (strongly advised)
+          description: Forces the heating off if it has been on this long without a break, then holds until the
+            next scheduled event. Also covers a heater someone switched on by hand and forgot.
+          default: true
+          selector:
+            boolean: {}
+        max_run_hours:
+          name: Maximum run time (hours)
+          default: 10
+          selector:
+            number:
+              min: 1
+              max: 48
+              mode: box
+              step: 0.5
+              unit_of_measurement: h
+        use_min_times:
+          name: Minimum run and rest time
+          description: Stops the boiler switching on and off rapidly. Does not apply to overrides or frost protection.
+          default: false
+          selector:
+            boolean: {}
+        min_run_minutes:
+          name: Minimum run time (minutes)
+          default: 10
+          selector:
+            number:
+              min: 0
+              max: 120
+              mode: box
+              unit_of_measurement: min
+        min_rest_minutes:
+          name: Minimum rest time (minutes)
+          default: 10
+          selector:
+            number:
+              min: 0
+              max: 120
+              mode: box
+              unit_of_measurement: min
+        use_alert:
+          name: Alert when thermostats are unavailable
+          description: Runs the alert action once an hour while a thermostat has been unavailable for 10 minutes
+            or more.
+          default: false
+          selector:
+            boolean: {}
+        alert_action:
+          name: Alert action
+          description: e.g. a phone notification. Use {{ alert_message }} as the message text.
+          default: []
+          selector:
+            action: {}
+    slot_1_section:
+      name: Slot 1
+      icon: mdi:clock-outline
+      collapsed: true
+      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
+        the slot. OFF must come after ON.
+      input:
+        slot_1_days:
+          name: Days this slot runs
+          description: The day the ON time falls on.
+          default:
+          - mon
+          - tue
+          - wed
+          - thu
+          - fri
+          - sat
+          - sun
+          selector:
+            select:
+              multiple: true
+              options:
+              - value: mon
+                label: Monday
+              - value: tue
+                label: Tuesday
+              - value: wed
+                label: Wednesday
+              - value: thu
+                label: Thursday
+              - value: fri
+                label: Friday
+              - value: sat
+                label: Saturday
+              - value: sun
+                label: Sunday
+        slot_1_on_entity:
+          name: ON - time sensor
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_1_on_dir:
+          name: ON - before or after
+          default: before
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_1_on_min:
+          name: ON - minutes
+          description: 120 = 2 hours.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+        slot_1_off_entity:
+          name: OFF - time sensor
+          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_1_off_dir:
+          name: OFF - before or after
+          default: after
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_1_off_min:
+          name: OFF - minutes
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+    slot_2_section:
+      name: Slot 2
+      icon: mdi:clock-outline
+      collapsed: true
+      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
+        the slot. OFF must come after ON.
+      input:
+        slot_2_days:
+          name: Days this slot runs
+          description: The day the ON time falls on.
+          default:
+          - mon
+          - tue
+          - wed
+          - thu
+          - fri
+          - sat
+          - sun
+          selector:
+            select:
+              multiple: true
+              options:
+              - value: mon
+                label: Monday
+              - value: tue
+                label: Tuesday
+              - value: wed
+                label: Wednesday
+              - value: thu
+                label: Thursday
+              - value: fri
+                label: Friday
+              - value: sat
+                label: Saturday
+              - value: sun
+                label: Sunday
+        slot_2_on_entity:
+          name: ON - time sensor
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_2_on_dir:
+          name: ON - before or after
+          default: before
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_2_on_min:
+          name: ON - minutes
+          description: 120 = 2 hours.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+        slot_2_off_entity:
+          name: OFF - time sensor
+          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_2_off_dir:
+          name: OFF - before or after
+          default: after
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_2_off_min:
+          name: OFF - minutes
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+    slot_3_section:
+      name: Slot 3
+      icon: mdi:clock-outline
+      collapsed: true
+      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
+        the slot. OFF must come after ON.
+      input:
+        slot_3_days:
+          name: Days this slot runs
+          description: The day the ON time falls on.
+          default:
+          - mon
+          - tue
+          - wed
+          - thu
+          - fri
+          - sat
+          - sun
+          selector:
+            select:
+              multiple: true
+              options:
+              - value: mon
+                label: Monday
+              - value: tue
+                label: Tuesday
+              - value: wed
+                label: Wednesday
+              - value: thu
+                label: Thursday
+              - value: fri
+                label: Friday
+              - value: sat
+                label: Saturday
+              - value: sun
+                label: Sunday
+        slot_3_on_entity:
+          name: ON - time sensor
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_3_on_dir:
+          name: ON - before or after
+          default: before
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_3_on_min:
+          name: ON - minutes
+          description: 120 = 2 hours.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+        slot_3_off_entity:
+          name: OFF - time sensor
+          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_3_off_dir:
+          name: OFF - before or after
+          default: after
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_3_off_min:
+          name: OFF - minutes
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+    slot_4_section:
+      name: Slot 4
+      icon: mdi:clock-outline
+      collapsed: true
+      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
+        the slot. OFF must come after ON.
+      input:
+        slot_4_days:
+          name: Days this slot runs
+          description: The day the ON time falls on.
+          default:
+          - mon
+          - tue
+          - wed
+          - thu
+          - fri
+          - sat
+          - sun
+          selector:
+            select:
+              multiple: true
+              options:
+              - value: mon
+                label: Monday
+              - value: tue
+                label: Tuesday
+              - value: wed
+                label: Wednesday
+              - value: thu
+                label: Thursday
+              - value: fri
+                label: Friday
+              - value: sat
+                label: Saturday
+              - value: sun
+                label: Sunday
+        slot_4_on_entity:
+          name: ON - time sensor
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_4_on_dir:
+          name: ON - before or after
+          default: before
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_4_on_min:
+          name: ON - minutes
+          description: 120 = 2 hours.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+        slot_4_off_entity:
+          name: OFF - time sensor
+          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_4_off_dir:
+          name: OFF - before or after
+          default: after
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_4_off_min:
+          name: OFF - minutes
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+    slot_5_section:
+      name: Slot 5
+      icon: mdi:clock-outline
+      collapsed: true
+      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
+        the slot. OFF must come after ON.
+      input:
+        slot_5_days:
+          name: Days this slot runs
+          description: The day the ON time falls on.
+          default:
+          - mon
+          - tue
+          - wed
+          - thu
+          - fri
+          - sat
+          - sun
+          selector:
+            select:
+              multiple: true
+              options:
+              - value: mon
+                label: Monday
+              - value: tue
+                label: Tuesday
+              - value: wed
+                label: Wednesday
+              - value: thu
+                label: Thursday
+              - value: fri
+                label: Friday
+              - value: sat
+                label: Saturday
+              - value: sun
+                label: Sunday
+        slot_5_on_entity:
+          name: ON - time sensor
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_5_on_dir:
+          name: ON - before or after
+          default: before
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_5_on_min:
+          name: ON - minutes
+          description: 120 = 2 hours.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+        slot_5_off_entity:
+          name: OFF - time sensor
+          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_5_off_dir:
+          name: OFF - before or after
+          default: after
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_5_off_min:
+          name: OFF - minutes
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+    slot_6_section:
+      name: Slot 6
+      icon: mdi:clock-outline
+      collapsed: true
+      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
+        the slot. OFF must come after ON.
+      input:
+        slot_6_days:
+          name: Days this slot runs
+          description: The day the ON time falls on.
+          default:
+          - mon
+          - tue
+          - wed
+          - thu
+          - fri
+          - sat
+          - sun
+          selector:
+            select:
+              multiple: true
+              options:
+              - value: mon
+                label: Monday
+              - value: tue
+                label: Tuesday
+              - value: wed
+                label: Wednesday
+              - value: thu
+                label: Thursday
+              - value: fri
+                label: Friday
+              - value: sat
+                label: Saturday
+              - value: sun
+                label: Sunday
+        slot_6_on_entity:
+          name: ON - time sensor
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_6_on_dir:
+          name: ON - before or after
+          default: before
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_6_on_min:
+          name: ON - minutes
+          description: 120 = 2 hours.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+        slot_6_off_entity:
+          name: OFF - time sensor
+          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_6_off_dir:
+          name: OFF - before or after
+          default: after
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_6_off_min:
+          name: OFF - minutes
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+    slot_7_section:
+      name: Slot 7
+      icon: mdi:clock-outline
+      collapsed: true
+      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
+        the slot. OFF must come after ON.
+      input:
+        slot_7_days:
+          name: Days this slot runs
+          description: The day the ON time falls on.
+          default:
+          - mon
+          - tue
+          - wed
+          - thu
+          - fri
+          - sat
+          - sun
+          selector:
+            select:
+              multiple: true
+              options:
+              - value: mon
+                label: Monday
+              - value: tue
+                label: Tuesday
+              - value: wed
+                label: Wednesday
+              - value: thu
+                label: Thursday
+              - value: fri
+                label: Friday
+              - value: sat
+                label: Saturday
+              - value: sun
+                label: Sunday
+        slot_7_on_entity:
+          name: ON - time sensor
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_7_on_dir:
+          name: ON - before or after
+          default: before
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_7_on_min:
+          name: ON - minutes
+          description: 120 = 2 hours.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+        slot_7_off_entity:
+          name: OFF - time sensor
+          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_7_off_dir:
+          name: OFF - before or after
+          default: after
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_7_off_min:
+          name: OFF - minutes
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+    slot_8_section:
+      name: Slot 8
+      icon: mdi:clock-outline
+      collapsed: true
+      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
+        the slot. OFF must come after ON.
+      input:
+        slot_8_days:
+          name: Days this slot runs
+          description: The day the ON time falls on.
+          default:
+          - mon
+          - tue
+          - wed
+          - thu
+          - fri
+          - sat
+          - sun
+          selector:
+            select:
+              multiple: true
+              options:
+              - value: mon
+                label: Monday
+              - value: tue
+                label: Tuesday
+              - value: wed
+                label: Wednesday
+              - value: thu
+                label: Thursday
+              - value: fri
+                label: Friday
+              - value: sat
+                label: Saturday
+              - value: sun
+                label: Sunday
+        slot_8_on_entity:
+          name: ON - time sensor
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_8_on_dir:
+          name: ON - before or after
+          default: before
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_8_on_min:
+          name: ON - minutes
+          description: 120 = 2 hours.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+        slot_8_off_entity:
+          name: OFF - time sensor
+          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_8_off_dir:
+          name: OFF - before or after
+          default: after
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_8_off_min:
+          name: OFF - minutes
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+    slot_9_section:
+      name: Slot 9
+      icon: mdi:clock-outline
+      collapsed: true
+      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
+        the slot. OFF must come after ON.
+      input:
+        slot_9_days:
+          name: Days this slot runs
+          description: The day the ON time falls on.
+          default:
+          - mon
+          - tue
+          - wed
+          - thu
+          - fri
+          - sat
+          - sun
+          selector:
+            select:
+              multiple: true
+              options:
+              - value: mon
+                label: Monday
+              - value: tue
+                label: Tuesday
+              - value: wed
+                label: Wednesday
+              - value: thu
+                label: Thursday
+              - value: fri
+                label: Friday
+              - value: sat
+                label: Saturday
+              - value: sun
+                label: Sunday
+        slot_9_on_entity:
+          name: ON - time sensor
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_9_on_dir:
+          name: ON - before or after
+          default: before
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_9_on_min:
+          name: ON - minutes
+          description: 120 = 2 hours.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+        slot_9_off_entity:
+          name: OFF - time sensor
+          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_9_off_dir:
+          name: OFF - before or after
+          default: after
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_9_off_min:
+          name: OFF - minutes
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+    slot_10_section:
+      name: Slot 10
+      icon: mdi:clock-outline
+      collapsed: true
+      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
+        the slot. OFF must come after ON.
+      input:
+        slot_10_days:
+          name: Days this slot runs
+          description: The day the ON time falls on.
+          default:
+          - mon
+          - tue
+          - wed
+          - thu
+          - fri
+          - sat
+          - sun
+          selector:
+            select:
+              multiple: true
+              options:
+              - value: mon
+                label: Monday
+              - value: tue
+                label: Tuesday
+              - value: wed
+                label: Wednesday
+              - value: thu
+                label: Thursday
+              - value: fri
+                label: Friday
+              - value: sat
+                label: Saturday
+              - value: sun
+                label: Sunday
+        slot_10_on_entity:
+          name: ON - time sensor
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_10_on_dir:
+          name: ON - before or after
+          default: before
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_10_on_min:
+          name: ON - minutes
+          description: 120 = 2 hours.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+        slot_10_off_entity:
+          name: OFF - time sensor
+          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: sensor
+                device_class: timestamp
+        slot_10_off_dir:
+          name: OFF - before or after
+          default: after
+          selector:
+            select:
+              options:
+              - value: before
+                label: Before
+              - value: after
+                label: After
+        slot_10_off_min:
+          name: OFF - minutes
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 1440
+              mode: box
+              unit_of_measurement: min
+mode: queued
+max: 5
+max_exceeded: silent
+trigger:
+- platform: time_pattern
+  id: tick
+  minutes: /1
+- platform: state
+  id: override_change
+  entity_id: !input 'override_mode_entity'
+- platform: homeassistant
+  id: ha_start
+  event: start
+variables:
+  slots:
+  - days: !input 'slot_1_days'
+    on_entity: !input 'slot_1_on_entity'
+    on_dir: !input 'slot_1_on_dir'
+    on_min: !input 'slot_1_on_min'
+    off_entity: !input 'slot_1_off_entity'
+    off_dir: !input 'slot_1_off_dir'
+    off_min: !input 'slot_1_off_min'
+  - days: !input 'slot_2_days'
+    on_entity: !input 'slot_2_on_entity'
+    on_dir: !input 'slot_2_on_dir'
+    on_min: !input 'slot_2_on_min'
+    off_entity: !input 'slot_2_off_entity'
+    off_dir: !input 'slot_2_off_dir'
+    off_min: !input 'slot_2_off_min'
+  - days: !input 'slot_3_days'
+    on_entity: !input 'slot_3_on_entity'
+    on_dir: !input 'slot_3_on_dir'
+    on_min: !input 'slot_3_on_min'
+    off_entity: !input 'slot_3_off_entity'
+    off_dir: !input 'slot_3_off_dir'
+    off_min: !input 'slot_3_off_min'
+  - days: !input 'slot_4_days'
+    on_entity: !input 'slot_4_on_entity'
+    on_dir: !input 'slot_4_on_dir'
+    on_min: !input 'slot_4_on_min'
+    off_entity: !input 'slot_4_off_entity'
+    off_dir: !input 'slot_4_off_dir'
+    off_min: !input 'slot_4_off_min'
+  - days: !input 'slot_5_days'
+    on_entity: !input 'slot_5_on_entity'
+    on_dir: !input 'slot_5_on_dir'
+    on_min: !input 'slot_5_on_min'
+    off_entity: !input 'slot_5_off_entity'
+    off_dir: !input 'slot_5_off_dir'
+    off_min: !input 'slot_5_off_min'
+  - days: !input 'slot_6_days'
+    on_entity: !input 'slot_6_on_entity'
+    on_dir: !input 'slot_6_on_dir'
+    on_min: !input 'slot_6_on_min'
+    off_entity: !input 'slot_6_off_entity'
+    off_dir: !input 'slot_6_off_dir'
+    off_min: !input 'slot_6_off_min'
+  - days: !input 'slot_7_days'
+    on_entity: !input 'slot_7_on_entity'
+    on_dir: !input 'slot_7_on_dir'
+    on_min: !input 'slot_7_on_min'
+    off_entity: !input 'slot_7_off_entity'
+    off_dir: !input 'slot_7_off_dir'
+    off_min: !input 'slot_7_off_min'
+  - days: !input 'slot_8_days'
+    on_entity: !input 'slot_8_on_entity'
+    on_dir: !input 'slot_8_on_dir'
+    on_min: !input 'slot_8_on_min'
+    off_entity: !input 'slot_8_off_entity'
+    off_dir: !input 'slot_8_off_dir'
+    off_min: !input 'slot_8_off_min'
+  - days: !input 'slot_9_days'
+    on_entity: !input 'slot_9_on_entity'
+    on_dir: !input 'slot_9_on_dir'
+    on_min: !input 'slot_9_on_min'
+    off_entity: !input 'slot_9_off_entity'
+    off_dir: !input 'slot_9_off_dir'
+    off_min: !input 'slot_9_off_min'
+  - days: !input 'slot_10_days'
+    on_entity: !input 'slot_10_on_entity'
+    on_dir: !input 'slot_10_on_dir'
+    on_min: !input 'slot_10_on_min'
+    off_entity: !input 'slot_10_off_entity'
+    off_dir: !input 'slot_10_off_dir'
+    off_min: !input 'slot_10_off_min'
+  until_entity: !input 'until_entity'
+  expected_entity: !input 'expected_entity'
+  override_mode_entity: !input 'override_mode_entity'
+  override_minutes_entity: !input 'override_minutes_entity'
+  pause_timer_entity: !input 'pause_timer_entity'
+  devices: !input 'devices'
+  thermostats: !input 'thermostats'
+  use_temp_control: !input 'use_temp_control'
+  on_temp: !input 'on_temp'
+  use_hold_temp: !input 'use_hold_temp'
+  hold_temp: !input 'hold_temp'
+  temp_margin: !input 'temp_margin'
+  use_frost: !input 'use_frost'
+  frost_temp: !input 'frost_temp'
+  override_beats_frost: !input 'override_beats_frost'
+  use_outside: !input 'use_outside'
+  outside_entity: !input 'outside_entity'
+  outside_max: !input 'outside_max'
+  use_forecast: !input 'use_forecast'
+  forecast_entity: !input 'forecast_entity'
+  forecast_max: !input 'forecast_max'
+  use_max_run: !input 'use_max_run'
+  max_run_hours: !input 'max_run_hours'
+  use_min_times: !input 'use_min_times'
+  min_run_minutes: !input 'min_run_minutes'
+  min_rest_minutes: !input 'min_rest_minutes'
+  use_alert: !input 'use_alert'
+action:
+- variables:
+    now_ts: |-
+      {{ now().timestamp() }}
+    wd: |-
+      {{ ['mon','tue','wed','thu','fri','sat','sun'][now().weekday()] }}
+    sched: |-
+      {%- set ns = namespace(until=0, start_ts=0) -%}
+      {%- for s in slots -%}
+      {%- if s.on_entity not in [none, ''] and s.off_entity not in [none, ''] and wd in s.days -%}
+      {%- set on_raw = as_timestamp(states(s.on_entity), 0) -%}
+      {%- set off_raw = as_timestamp(states(s.off_entity), 0) -%}
+      {%- if on_raw > 0 and off_raw > 0 -%}
+      {%- set on_ts = on_raw + (s.on_min | float(0)) * 60 * (-1 if s.on_dir == 'before' else 1) -%}
+      {%- set off_ts = off_raw + (s.off_min | float(0)) * 60 * (-1 if s.off_dir == 'before' else 1) -%}
+      {%- if on_ts <= now_ts and now_ts < off_ts -%}
+      {%- set ns.until = [ns.until, off_ts] | max -%}
+      {%- set ns.start_ts = [ns.start_ts, on_ts] | max -%}
+      {%- endif -%}
+      {%- endif -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ dict(until=ns.until, start_ts=ns.start_ts) }}
+    until_ts: |-
+      {{ state_attr(until_entity, 'timestamp') | float(0) }}
+    win_until: |-
+      {{ [until_ts, sched.until] | max }}
+    win_active: |-
+      {{ now_ts < win_until }}
+    paused: |-
+      {{ pause_timer_entity not in [none, ''] and is_state(pause_timer_entity, 'active') }}
+    raw_mode: |-
+      {{ states(override_mode_entity) | lower }}
+    mode0: |-
+      {{ raw_mode if raw_mode in ['on', 'off', 'hold'] else 'auto' }}
+    ov_changed_ts: |-
+      {%- set o = expand(override_mode_entity) | first | default(none) -%}
+      {{ as_timestamp(o.last_changed) if o else 0 }}
+    ov_minutes: |-
+      {{ states(override_minutes_entity) | float(0) }}
+    exp_on: |-
+      {{ is_state(expected_entity, 'on') }}
+    exp_age: |-
+      {%- set o = expand(expected_entity) | first | default(none) -%}
+      {{ (now_ts - as_timestamp(o.last_changed)) if o else 0 }}
+    temps: |-
+      {%- set ns = namespace(l=[]) -%}
+      {%- for e in thermostats -%}
+      {%- set v = state_attr(e, 'current_temperature') if e.startswith('climate.') else states(e) -%}
+      {%- set f = v | float(none) -%}
+      {%- if f is not none -%}{%- set ns.l = ns.l + [f] -%}{%- endif -%}
+      {%- endfor -%}
+      {{ ns.l }}
+    have_temps: |-
+      {{ temps | length > 0 }}
+    lo: |-
+      {{ temps | min if temps | length > 0 else 999 }}
+    hi: |-
+      {{ temps | max if temps | length > 0 else -999 }}
+    out_t: |-
+      {%- if outside_entity in [none, ''] -%}{{ -999 }}
+      {%- elif outside_entity.startswith('weather.') -%}{{ state_attr(outside_entity, 'temperature') | float(-999) }}
+      {%- else -%}{{ states(outside_entity) | float(-999) }}{%- endif -%}
+    frost_active: |-
+      {{ use_frost and have_temps and (lo < frost_temp or (exp_on and lo < frost_temp + temp_margin)) }}
+    outside_block: |-
+      {{ use_outside and not exp_on and out_t > outside_max }}
+    override_expired: |-
+      {{ mode0 in ['on', 'off'] and ov_minutes > 0 and now_ts > ov_changed_ts + ov_minutes * 60 }}
+    clear_hold: |-
+      {{ mode0 == 'hold' and (frost_active or sched.start_ts > ov_changed_ts or (until_ts > 0 and now_ts >= until_ts and ov_changed_ts < until_ts)) }}
+    eff_mode: |-
+      {{ 'auto' if (override_expired or clear_hold) else mode0 }}
+    actual: |-
+      {%- set ns = namespace(on=false, bad=false, n=0) -%}
+      {%- for d in devices -%}
+      {%- set st = states(d) -%}
+      {%- set ns.n = ns.n + 1 -%}
+      {%- if st in ['unavailable', 'unknown'] -%}{%- set ns.bad = true -%}
+      {%- elif st != 'off' -%}{%- set ns.on = true -%}{%- endif -%}
+      {%- endfor -%}
+      {{ 'unknown' if (ns.n == 0 or ns.bad) else ('on' if ns.on else 'off') }}
+    manual: |-
+      {{ mode0 == 'auto' and actual in ['on', 'off'] and ((actual == 'on') != exp_on) and exp_age > 120 and not paused }}
+    want_sched: |-
+      {%- if outside_block -%}{{ false }}
+      {%- elif win_active -%}
+      {%- if use_temp_control and have_temps -%}
+      {%- if exp_on -%}{{ hi < on_temp }}{%- else -%}{{ lo < on_temp and hi < on_temp - temp_margin }}{%- endif -%}
+      {%- else -%}{{ true }}{%- endif -%}
+      {%- elif use_hold_temp and have_temps -%}
+      {%- if exp_on -%}{{ hi < hold_temp }}{%- else -%}{{ lo < hold_temp and hi < hold_temp - temp_margin }}{%- endif -%}
+      {%- else -%}{{ false }}{%- endif -%}
+    want_mode: |-
+      {%- if eff_mode == 'on' -%}{{ true }}
+      {%- elif eff_mode == 'off' -%}{{ false }}
+      {%- else -%}{{ want_sched }}{%- endif -%}
+    want: |-
+      {{ true if (frost_active and not (eff_mode == 'off' and override_beats_frost)) else want_mode }}
+    forced: |-
+      {{ eff_mode in ['on', 'off'] or frost_active or trigger.id == 'override_change' }}
+    want_final: |-
+      {%- if use_min_times and not forced and want != exp_on -%}
+      {%- if exp_on and exp_age < min_run_minutes * 60 -%}{{ true }}
+      {%- elif (not exp_on) and exp_age < min_rest_minutes * 60 -%}{{ false }}
+      {%- else -%}{{ want }}{%- endif -%}
+      {%- else -%}{{ want }}{%- endif -%}
+    cutoff: |-
+      {{ use_max_run and exp_on and exp_age > max_run_hours * 3600 and not frost_active }}
+    cmd: |-
+      {%- if paused -%}none
+      {%- elif manual -%}none
+      {%- elif cutoff -%}off
+      {%- elif eff_mode == 'hold' -%}none
+      {%- elif want_final != exp_on -%}{{ 'on' if want_final else 'off' }}
+      {%- elif eff_mode in ['on', 'off'] and actual in ['on', 'off'] and ((actual == 'on') != want_final) and exp_age > 120 and now().minute % 5 == 0 -%}{{ 'on' if want_final else 'off' }}
+      {%- else -%}none{%- endif -%}
+    need_forecast: |-
+      {{ use_forecast and forecast_entity not in [none, ''] and eff_mode == 'auto' and not frost_active }}
+    unavail: |-
+      {%- set ns = namespace(n=[]) -%}
+      {%- for e in thermostats -%}
+      {%- set o = expand(e) | first | default(none) -%}
+      {%- if o and o.state in ['unavailable', 'unknown'] and (now_ts - as_timestamp(o.last_changed)) > 600 -%}
+      {%- set ns.n = ns.n + [o.name] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ ns.n }}
+    alert: |-
+      {{ use_alert and trigger.id == 'tick' and now().minute == 0 and unavail | length > 0 }}
+    alert_message: |-
+      Heating: thermostat unavailable - {{ unavail | join(', ') }}
+- if:
+  - condition: template
+    value_template: |-
+      {{ sched.until > until_ts }}
+  then:
+  - action: input_datetime.set_datetime
+    target:
+      entity_id: !input 'until_entity'
+    data:
+      timestamp: |-
+        {{ sched.until }}
+- if:
+  - condition: template
+    value_template: |-
+      {{ override_expired or clear_hold }}
+  then:
+  - action: input_select.select_first
+    target:
+      entity_id: !input 'override_mode_entity'
+- if:
+  - condition: template
+    value_template: |-
+      {{ manual }}
+  then:
+  - action: input_select.select_option
+    target:
+      entity_id: !input 'override_mode_entity'
+    data:
+      option: Hold
+  - if:
+    - condition: template
+      value_template: |-
+        {{ actual == 'on' }}
+    then:
+    - action: input_boolean.turn_on
+      target:
+        entity_id: !input 'expected_entity'
+    else:
+    - action: input_boolean.turn_off
+      target:
+        entity_id: !input 'expected_entity'
+- if:
+  - condition: template
+    value_template: |-
+      {{ cutoff and cmd == 'off' }}
+  then:
+  - action: input_select.select_option
+    target:
+      entity_id: !input 'override_mode_entity'
+    data:
+      option: Hold
+- if:
+  - condition: template
+    value_template: |-
+      {{ cmd == 'on' }}
+  then:
+  - if:
+    - condition: template
+      value_template: |-
+        {{ need_forecast }}
+    then:
+    - action: weather.get_forecasts
+      target:
+        entity_id: '{{ forecast_entity }}'
+      data:
+        type: daily
+      response_variable: fc
+      continue_on_error: true
+    - variables:
+        fc_high: |-
+          {%- set rows = fc[forecast_entity].forecast if (fc is defined and fc is mapping and forecast_entity in fc) else [] -%}
+          {%- set ns = namespace(h=none) -%}
+          {%- for f in rows -%}
+          {%- if ns.h is none and f.datetime is defined and f.temperature is defined and as_local(as_datetime(f.datetime)).date() == now().date() -%}
+          {%- set ns.h = f.temperature | float(none) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ ns.h }}
+        skip_start: |-
+          {{ fc_high is not none and fc_high >= forecast_max }}
+    - if:
+      - condition: template
+        value_template: |-
+          {{ skip_start }}
+      then:
+      - action: input_select.select_option
+        target:
+          entity_id: !input 'override_mode_entity'
+        data:
+          option: Hold
+      else:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: !input 'expected_entity'
+      - action: homeassistant.turn_on
+        target:
+          entity_id: !input 'devices'
+    else:
+    - action: input_boolean.turn_on
+      target:
+        entity_id: !input 'expected_entity'
+    - action: homeassistant.turn_on
+      target:
+        entity_id: !input 'devices'
+- if:
+  - condition: template
+    value_template: |-
+      {{ cmd == 'off' }}
+  then:
+  - action: input_boolean.turn_off
+    target:
+      entity_id: !input 'expected_entity'
+  - action: homeassistant.turn_off
+    target:
+      entity_id: !input 'devices'
+- if:
+  - condition: template
+    value_template: |-
+      {{ alert }}
+  then:
+  - sequence: !input 'alert_action'
