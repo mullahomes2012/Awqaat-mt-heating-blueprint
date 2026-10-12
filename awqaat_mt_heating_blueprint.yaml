@@ -72,6 +72,16 @@ blueprint:
             entity:
               filter:
               - domain: timer
+        status_entity:
+          name: Status line (optional)
+          description: 'Create a Text helper and set its maximum length to 255. The automation writes a short sentence
+            here saying why the heating is on or off, for example ''Off: room is warm enough''. Show it on your
+            dashboard.'
+          default: null
+          selector:
+            entity:
+              filter:
+              - domain: input_text
     temps_section:
       name: 3. Room temperature (optional)
       icon: mdi:thermometer
@@ -1328,6 +1338,7 @@ variables:
   override_mode_entity: !input 'override_mode_entity'
   override_minutes_entity: !input 'override_minutes_entity'
   pause_timer_entity: !input 'pause_timer_entity'
+  status_entity: !input 'status_entity'
   devices: !input 'devices'
   thermostats: !input 'thermostats'
   use_temp_control: !input 'use_temp_control'
@@ -1572,6 +1583,18 @@ action:
           entity_id: !input 'override_mode_entity'
         data:
           option: Hold
+      - if:
+        - condition: template
+          value_template: |-
+            {{ status_entity not in [none, ''] }}
+        then:
+        - action: input_text.set_value
+          target:
+            entity_id: '{{ status_entity }}'
+          data:
+            value: |-
+              {%- set m = state_attr(status_entity, 'max') | int(100) -%}
+              {{ ('Hold: skipped today, forecast high ' ~ ('%g' | format(fc_high | float(0) | round(1))) ~ '° (limit ' ~ ('%g' | format(forecast_max | float(0) | round(1))) ~ '°). Back to normal at the next heating time.')[:m] }}
       else:
       - action: input_boolean.turn_on
         target:
@@ -1603,3 +1626,59 @@ action:
       {{ alert }}
   then:
   - sequence: !input 'alert_action'
+- if:
+  - condition: template
+    value_template: |-
+      {{ status_entity not in [none, ''] }}
+  then:
+  - variables:
+      live_hold: |-
+        {{ is_state(override_mode_entity, 'Hold') }}
+      status_cur: |-
+        {{ states(status_entity) }}
+      status_max: |-
+        {{ state_attr(status_entity, 'max') | int(100) }}
+      next_on: |-
+        {%- set nx = namespace(t=0) -%}
+        {%- for s in slots -%}
+        {%- if s.on_entity not in [none, ''] and s.off_entity not in [none, ''] and wd in s.days -%}
+        {%- set on_raw = as_timestamp(states(s.on_entity), 0) -%}
+        {%- if on_raw > 0 -%}
+        {%- set on_ts = on_raw + (s.on_min | float(0)) * 60 * (-1 if s.on_dir == 'before' else 1) -%}
+        {%- if on_ts > now_ts and (nx.t == 0 or on_ts < nx.t) -%}{%- set nx.t = on_ts -%}{%- endif -%}
+        {%- endif -%}
+        {%- endif -%}
+        {%- endfor -%}
+        {{ nx.t }}
+      status_text: |-
+        {%- macro f(x) -%}{{ '%g' | format(x | float(0) | round(1)) }}{%- endmacro -%}
+        {%- set until_txt = win_until | timestamp_custom('%H:%M') -%}
+        {%- set nxt = (' Next: ' ~ (next_on | timestamp_custom('%H:%M')) ~ '.') if next_on > 0 else ' No more heating times today.' -%}
+        {%- set ov_txt = (' (until ' ~ ((ov_changed_ts + ov_minutes * 60) | timestamp_custom('%H:%M')) ~ ')') if ov_minutes > 0 else ' (until you change it)' -%}
+        {%- if paused -%}Paused: the automation is not switching anything.
+        {%- elif manual -%}Hold: switched {{ 'on' if actual == 'on' else 'off' }} by hand around {{ now().strftime('%H:%M') }}. Back to normal at the next heating time.
+        {%- elif cutoff and cmd == 'off' -%}Hold: switched off after {{ f(max_run_hours) }} hours on (maximum run time). Back to normal at the next heating time.
+        {%- elif live_hold -%}Hold: the automation has stepped back. Back to normal at the next heating time.
+        {%- elif frost_active and want -%}On: frost protection, a room is below {{ f(frost_temp) }}°.
+        {%- elif eff_mode == 'on' -%}On: override set to On{{ ov_txt }}.
+        {%- elif eff_mode == 'off' -%}Off: override set to Off{{ ov_txt }}.
+        {%- elif want != want_final -%}{{ 'On' if want_final else 'Off' }}: waiting for the minimum {{ 'run' if want_final else 'rest' }} time.
+        {%- elif win_active and outside_block -%}Off: not starting, it is warm outside ({{ out_t | float(0) | round(0) | int }}°, limit {{ f(outside_max) }}°). Heating time until {{ until_txt }}.
+        {%- elif win_active and use_temp_control and have_temps and want_final -%}On: heating time until {{ until_txt }}, warming the room to {{ f(on_temp) }}°.
+        {%- elif win_active and use_temp_control and have_temps -%}Off: room is warm enough (target {{ f(on_temp) }}°). Heating time until {{ until_txt }}.
+        {%- elif win_active and use_temp_control -%}On: heating time until {{ until_txt }}. No room temperature available, so it runs the whole time.
+        {%- elif win_active -%}On: heating time until {{ until_txt }}.
+        {%- elif use_hold_temp and have_temps and want_final -%}On: keeping the room above {{ f(hold_temp) }}°.
+        {%- else -%}Off: no heating time now.{{ nxt }}
+        {%- endif -%}
+  - if:
+    - condition: template
+      value_template: |-
+        {{ (not (live_hold and status_cur.startswith('Hold')) or paused) and status_text[:status_max] != status_cur }}
+    then:
+    - action: input_text.set_value
+      target:
+        entity_id: '{{ status_entity }}'
+      data:
+        value: |-
+          {{ status_text[:status_max] }}

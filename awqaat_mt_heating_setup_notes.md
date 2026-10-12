@@ -10,6 +10,9 @@ Go to Settings > Devices & services > Helpers > Create helper. The automation us
 | Helper 3: manual control dropdown | Dropdown | Options exactly, in this order: `Auto`, `On`, `Off`, `Hold` |
 | Helper 4: how long On or Off lasts (minutes) | Number | Minimum 0, maximum 1440, step 5, show as input field |
 | Pause timer (optional) | Timer | Leave as default |
+| Status line (optional) | Text | Set the **maximum length to 255** |
+
+The pause timer and the status line are optional. The status line is a Text helper where the automation writes a short sentence saying why the heating is on or off (for example "Off: room is warm enough (target 21°). Heating time until 07:10."). Show it on a dashboard. Make sure its maximum length is 255, otherwise the sentence is cut short.
 
 There is no counter to create. Heating times that overlap or touch join into one, so the heating doesn't switch off and on in the middle.
 
@@ -44,6 +47,16 @@ Put the dropdown (Helper 3) and the minutes (Helper 4) on a dashboard.
 3. After that many minutes it goes back to **Auto** by itself.
 
 On keeps the heating on and Off keeps it off. On still stops at the longest-it-can-stay-on limit. You don't need to choose Hold: the automation sets that itself.
+
+### A heating dashboard
+A ready-made layout using only the built-in cards is a good fit:
+- The status line sentence at the top, with the heating switches (display only) underneath.
+- Room temperatures, with any sensor that isn't working flagged, plus the outside temperature.
+- The heating time card: is a heating time active now, and when is the next one.
+- The controls: the dropdown, the minutes, the pause timer and the automation's on/off.
+- A 24 hour history graph of temperatures and the heating.
+
+Show the heating switches as read-only. Tapping one counts as switching it by hand, and the automation steps back (Hold). Use the dropdown to take control instead.
 
 ## 7. If someone switches the heating by hand
 The automation notices within a couple of minutes and steps back. The dropdown shows **Hold**. It starts working again at the next heating time, when the heating time it was in ends, or if frost protection needs it. Hold also shows after the "on too long" cut-off or a warm-forecast skip.
