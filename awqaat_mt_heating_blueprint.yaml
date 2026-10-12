@@ -1,22 +1,23 @@
 blueprint:
-  name: Awqaat MT - Heating (schedule slots, temperature, override)
-  description: Heating controller driven by Awqaat MT time sensors. Up to 10 slots, each with its own days, an ON
-    time and an OFF time (minutes before or after any sensor). Optional temperature control, hold temperature, frost
-    protection, outside-temperature block, max run, min run/rest, unavailable alert, pause timer, and a dashboard
-    override (Auto / On / Off with an optional time limit). Windows that cross midnight work. Manual changes to
-    the heating devices are noticed and respected until the next scheduled event.
+  name: Awqaat MT - Heating
+  description: 'Switches your heating on and off at times based on the prayer times. Example: on 2 hours before
+    Fajr, off at Sunrise. You can set up to 10 heating times, each with its own days. It can also switch off when
+    the room is warm enough, keep the room above a minimum, protect against frost, skip warm days, and let you take
+    control from a dashboard (Auto / On / Off). If someone switches the heating on or off by hand, the automation
+    leaves it alone until the next heating time.'
   domain: automation
   input:
     devices_section:
-      name: 1. Devices
+      name: 1. What to heat
       icon: mdi:radiator
       collapsed: false
-      description: What the heating controls.
+      description: Choose the switches or heating devices this automation controls.
       input:
         devices:
           name: Heating devices
-          description: Everything to switch on and off together (switches, climate entities, relays...). Also used
-            to notice when someone changes them by hand.
+          description: Pick everything that should switch on and off together, for example your heating relay or
+            switch. If someone switches one of these on or off by hand, the automation notices and leaves it alone
+            until the next heating time.
           selector:
             entity:
               multiple: true
@@ -24,57 +25,64 @@ blueprint:
       name: 2. Helpers (create these first)
       icon: mdi:cog
       collapsed: false
-      description: Settings > Devices & services > Helpers. Exact settings are in the setup notes.
+      description: The automation needs 4 small helpers so it can remember things. Create each one in Settings >
+        Devices & services > Helpers > Create helper, then pick it below. Only the dropdown and the minutes are
+        for you to use. Put those two on your dashboard.
       input:
         until_entity:
-          name: Heating-until helper
-          description: Date and time helper. Remembers when the current scheduled heating window ends, so windows
-            survive midnight and restarts.
+          name: 'Helper 1: when the heating should finish'
+          description: Create a Date and/or time helper and tick both Date and Time. The automation uses it to remember
+            when the current heating time ends.
           selector:
             entity:
               filter:
               - domain: input_datetime
         expected_entity:
-          name: Heating-expected-on helper
-          description: Toggle helper. Remembers what this automation last told the heating to do.
+          name: 'Helper 2: is the heating meant to be on?'
+          description: Create a Toggle helper. The automation uses it to remember what it last told the heating
+            to do, so it can tell when someone changes it by hand.
           selector:
             entity:
               filter:
               - domain: input_boolean
         override_mode_entity:
-          name: Override dropdown helper
-          description: 'Dropdown helper with options exactly: Auto, On, Off, Hold (Auto first). Put it on your dashboard.'
+          name: 'Helper 3: manual control dropdown'
+          description: 'Create a Dropdown helper with exactly these 4 options, in this order: Auto, On, Off, Hold.
+            Auto = follow the schedule. On = keep the heating on. Off = keep the heating off. Hold = the automation
+            has stepped back (it sets this itself when someone switches the heating by hand).'
           selector:
             entity:
               filter:
               - domain: input_select
         override_minutes_entity:
-          name: Override minutes helper
-          description: Number helper. Minutes an On/Off override lasts, then back to Auto. 0 = until you change
-            it. Set this first, then pick On or Off.
+          name: 'Helper 4: how long On or Off lasts (minutes)'
+          description: Create a Number helper (minimum 0, maximum 1440, step 5). Set the minutes first, then choose
+            On or Off in the dropdown. After that many minutes it goes back to Auto. 0 means it stays until you
+            change it back.
           selector:
             entity:
               filter:
               - domain: input_number
         pause_timer_entity:
           name: Pause timer (optional)
-          description: While this timer is running the automation sends no commands (it keeps tracking, so it catches
-            up when the timer ends).
+          description: Create a Timer helper if you want a pause button. While the timer is running the automation
+            does nothing, so you can use the heating by hand. When the timer finishes, the automation carries on.
           default: null
           selector:
             entity:
               filter:
               - domain: timer
     temps_section:
-      name: 3. Temperature control (all optional)
+      name: 3. Room temperature (optional)
       icon: mdi:thermometer
       collapsed: true
-      description: Tick a box to switch a feature on. Anything unticked is ignored.
+      description: Tick a box to switch a feature on. Anything left unticked does nothing.
       input:
         thermostats:
-          name: Thermostats / temperature sensors
-          description: Any number. The lowest reading decides when heat is needed and the highest reading stops
-            it, so the warmest room caps the heating. Climate entities use their current temperature.
+          name: Room temperature sensors
+          description: Pick one or more temperature sensors (or heating thermostats). Heating starts when the coldest
+            room is too cold and stops once the warmest room reaches the target. Sensors that are unavailable are
+            ignored.
           default: []
           selector:
             entity:
@@ -84,14 +92,16 @@ blueprint:
                 - sensor
                 - climate
         use_temp_control:
-          name: Follow temperature during a scheduled window
-          description: 'On: heat up to the ON temperature, then pause. Off: just on/off by schedule.'
+          name: Switch off when the room is warm enough
+          description: Tick this to use the target temperature below. The heating switches off when the room reaches
+            the target, and back on if the room cools down. If you leave this unticked, the heating just runs for
+            the whole heating time, whatever the room temperature is.
           default: false
           selector:
             boolean: {}
         on_temp:
-          name: ON temperature
-          description: Target while a scheduled window is active.
+          name: Target temperature
+          description: The room temperature you want. Only used if the box above is ticked.
           default: 21
           selector:
             number:
@@ -101,13 +111,15 @@ blueprint:
               step: 0.5
               unit_of_measurement: °C
         use_hold_temp:
-          name: Hold a minimum temperature outside windows
-          description: Come back on if the lowest reading falls below the OFF temperature.
+          name: Keep the room above a minimum, even outside heating times
+          description: Tick this to stop the room getting too cold between heating times. If it drops below the
+            minimum temperature below, the heating comes on until the room is back up to it.
           default: false
           selector:
             boolean: {}
         hold_temp:
-          name: OFF (hold) temperature
+          name: Minimum temperature
+          description: Only used if the box above is ticked.
           default: 16
           selector:
             number:
@@ -117,9 +129,10 @@ blueprint:
               step: 0.5
               unit_of_measurement: °C
         temp_margin:
-          name: Temperature margin
-          description: Stops rapid switching. After heating stops it will not restart until the warmest reading
-            is this far below the target.
+          name: Gap before switching back on
+          description: 'Stops the heating switching on and off all the time. After it switches off, it waits until
+            the room is this much below the target before switching on again. Example: target 21 and gap 0.5 means
+            it comes back on below 20.5.'
           default: 0.5
           selector:
             number:
@@ -130,12 +143,13 @@ blueprint:
               unit_of_measurement: °C
         use_frost:
           name: Frost protection
-          description: Turn on if the lowest reading falls below the frost temperature, whatever else is set.
+          description: Tick this to make the heating come on if a room gets very cold, whatever else is set.
           default: false
           selector:
             boolean: {}
         frost_temp:
           name: Frost temperature
+          description: The heating comes on if the coldest room drops below this.
           default: 5
           selector:
             number:
@@ -145,19 +159,23 @@ blueprint:
               step: 0.5
               unit_of_measurement: °C
         override_beats_frost:
-          name: Forced OFF override beats frost protection
+          name: Let 'Off' stop frost protection
+          description: Normally frost protection still switches the heating on even if the dropdown is set to Off.
+            Tick this if you want Off to really mean off.
           default: false
           selector:
             boolean: {}
         use_outside:
-          name: Do not heat when it is warm outside
+          name: Don't start heating when it's warm outside
+          description: Tick this to stop the heating starting on mild days. It uses the outside temperature and
+            limit below.
           default: false
           selector:
             boolean: {}
         outside_entity:
-          name: Outside temperature (sensor or weather entity)
-          description: A temperature sensor, or a weather entity such as weather.home (its current temperature is
-            used).
+          name: Outside temperature
+          description: Pick an outdoor temperature sensor, or a weather service such as weather.home (it uses the
+            current temperature).
           default: null
           selector:
             entity:
@@ -167,8 +185,8 @@ blueprint:
                 - weather
         outside_max:
           name: Outside temperature limit
-          description: Heating will not START while outside is above this. A session already running carries on.
-            Frost protection is not affected.
+          description: The heating won't start if it's warmer than this outside. If it's already running, it carries
+            on. Frost protection still works.
           default: 15
           selector:
             number:
@@ -178,24 +196,24 @@ blueprint:
               step: 0.5
               unit_of_measurement: °C
         use_forecast:
-          name: Skip heating when the day's forecast is warm
-          description: Checks the weather forecast when heating is about to start. If the forecast HIGH for that
-            day is at or above the limit below, heating does not start and the dropdown shows Hold until the next
-            scheduled event. Never interrupts a running session. Frost protection and overrides still work.
+          name: Skip heating on days forecast to be warm
+          description: Tick this to check the weather forecast just before the heating would start. If today's forecast
+            high is at or above the limit below, the heating doesn't start and the dropdown shows Hold until the
+            next heating time. It never stops heating that is already running.
           default: false
           selector:
             boolean: {}
         forecast_entity:
-          name: Weather entity for the forecast
-          description: A weather entity that provides a daily forecast, e.g. weather.home.
+          name: Weather service for the forecast
+          description: Pick your weather service, for example weather.home. It must provide a daily forecast.
           default: null
           selector:
             entity:
               filter:
               - domain: weather
         forecast_max:
-          name: Forecast high limit
-          description: Heating is skipped for the day if the forecast high is at or above this.
+          name: Forecast limit
+          description: Heating is skipped for the day if the forecast high is this or higher.
           default: 20
           selector:
             number:
@@ -205,19 +223,22 @@ blueprint:
               step: 0.5
               unit_of_measurement: °C
     safety_section:
-      name: 4. Limits and alerts (all optional)
+      name: 4. Safety and alerts (optional)
       icon: mdi:shield-check
       collapsed: true
+      description: Tick a box to switch a feature on. Anything left unticked does nothing.
       input:
         use_max_run:
-          name: Maximum run time (strongly advised)
-          description: Forces the heating off if it has been on this long without a break, then holds until the
-            next scheduled event. Also covers a heater someone switched on by hand and forgot.
+          name: Switch off if the heating has been on too long (recommended)
+          description: A safety net. If the heating has been on for longer than the time below without a break,
+            it is switched off and stays off until the next heating time. It also catches heating that someone switched
+            on by hand and forgot.
           default: true
           selector:
             boolean: {}
         max_run_hours:
-          name: Maximum run time (hours)
+          name: Longest it can stay on (hours)
+          description: Only used if the box above is ticked.
           default: 10
           selector:
             number:
@@ -227,13 +248,15 @@ blueprint:
               step: 0.5
               unit_of_measurement: h
         use_min_times:
-          name: Minimum run and rest time
-          description: Stops the boiler switching on and off rapidly. Does not apply to overrides or frost protection.
+          name: Avoid switching on and off too quickly
+          description: Tick this to stop the boiler clicking on and off. Once the heating switches on (or off) it
+            stays that way for at least the times below. This does not apply to the dropdown or frost protection.
           default: false
           selector:
             boolean: {}
         min_run_minutes:
-          name: Minimum run time (minutes)
+          name: Stay on for at least (minutes)
+          description: Only used if the box above is ticked.
           default: 10
           selector:
             number:
@@ -242,7 +265,8 @@ blueprint:
               mode: box
               unit_of_measurement: min
         min_rest_minutes:
-          name: Minimum rest time (minutes)
+          name: Stay off for at least (minutes)
+          description: Only used if the box above is ticked.
           default: 10
           selector:
             number:
@@ -251,28 +275,30 @@ blueprint:
               mode: box
               unit_of_measurement: min
         use_alert:
-          name: Alert when thermostats are unavailable
-          description: Runs the alert action once an hour while a thermostat has been unavailable for 10 minutes
-            or more.
+          name: Alert me when a room sensor stops working
+          description: Tick this to run the alert below once an hour while a sensor has been unavailable for 10
+            minutes or more.
           default: false
           selector:
             boolean: {}
         alert_action:
-          name: Alert action
-          description: e.g. a phone notification. Use {{ alert_message }} as the message text.
+          name: What to do for the alert
+          description: For example, send a phone notification. Type {{ alert_message }} in the message to include
+            the names of the sensors that stopped working.
           default: []
           selector:
             action: {}
     slot_1_section:
-      name: Slot 1
+      name: Heating time 1
       icon: mdi:clock-outline
       collapsed: true
-      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
-        the slot. OFF must come after ON.
+      description: 'One time to switch the heating on and one time to switch it off. You need both, otherwise this
+        heating time does nothing. Leave ''Switch ON'' empty to skip it. Example: on 2 hours before Fajr and off
+        at Sunrise. Switch ON: Fajr, Before, 120. Switch OFF: Sunrise, After, 0.'
       input:
         slot_1_days:
-          name: Days this slot runs
-          description: The day the ON time falls on.
+          name: Days it runs
+          description: Tick the days it should start on. If it runs past midnight, it still finishes the next day.
           default:
           - mon
           - tue
@@ -300,7 +326,8 @@ blueprint:
               - value: sun
                 label: Sunday
         slot_1_on_entity:
-          name: ON - time sensor
+          name: 'Switch ON: which time?'
+          description: Pick a time sensor, for example Fajr Salaah.
           default: null
           selector:
             entity:
@@ -308,7 +335,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_1_on_dir:
-          name: ON - before or after
+          name: 'Switch ON: before or after that time?'
           default: before
           selector:
             select:
@@ -318,8 +345,8 @@ blueprint:
               - value: after
                 label: After
         slot_1_on_min:
-          name: ON - minutes
-          description: 120 = 2 hours.
+          name: 'Switch ON: how many minutes?'
+          description: For example 120 = 2 hours. Use 0 to switch on exactly at that time.
           default: 0
           selector:
             number:
@@ -328,8 +355,8 @@ blueprint:
               mode: box
               unit_of_measurement: min
         slot_1_off_entity:
-          name: OFF - time sensor
-          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          name: 'Switch OFF: which time?'
+          description: Pick a time sensor that comes after the ON time, for example Sunrise.
           default: null
           selector:
             entity:
@@ -337,7 +364,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_1_off_dir:
-          name: OFF - before or after
+          name: 'Switch OFF: before or after that time?'
           default: after
           selector:
             select:
@@ -347,7 +374,8 @@ blueprint:
               - value: after
                 label: After
         slot_1_off_min:
-          name: OFF - minutes
+          name: 'Switch OFF: how many minutes?'
+          description: Use 0 to switch off exactly at that time.
           default: 0
           selector:
             number:
@@ -356,15 +384,16 @@ blueprint:
               mode: box
               unit_of_measurement: min
     slot_2_section:
-      name: Slot 2
+      name: Heating time 2
       icon: mdi:clock-outline
       collapsed: true
-      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
-        the slot. OFF must come after ON.
+      description: 'One time to switch the heating on and one time to switch it off. You need both, otherwise this
+        heating time does nothing. Leave ''Switch ON'' empty to skip it. Example: on 2 hours before Fajr and off
+        at Sunrise. Switch ON: Fajr, Before, 120. Switch OFF: Sunrise, After, 0.'
       input:
         slot_2_days:
-          name: Days this slot runs
-          description: The day the ON time falls on.
+          name: Days it runs
+          description: Tick the days it should start on. If it runs past midnight, it still finishes the next day.
           default:
           - mon
           - tue
@@ -392,7 +421,8 @@ blueprint:
               - value: sun
                 label: Sunday
         slot_2_on_entity:
-          name: ON - time sensor
+          name: 'Switch ON: which time?'
+          description: Pick a time sensor, for example Fajr Salaah.
           default: null
           selector:
             entity:
@@ -400,7 +430,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_2_on_dir:
-          name: ON - before or after
+          name: 'Switch ON: before or after that time?'
           default: before
           selector:
             select:
@@ -410,8 +440,8 @@ blueprint:
               - value: after
                 label: After
         slot_2_on_min:
-          name: ON - minutes
-          description: 120 = 2 hours.
+          name: 'Switch ON: how many minutes?'
+          description: For example 120 = 2 hours. Use 0 to switch on exactly at that time.
           default: 0
           selector:
             number:
@@ -420,8 +450,8 @@ blueprint:
               mode: box
               unit_of_measurement: min
         slot_2_off_entity:
-          name: OFF - time sensor
-          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          name: 'Switch OFF: which time?'
+          description: Pick a time sensor that comes after the ON time, for example Sunrise.
           default: null
           selector:
             entity:
@@ -429,7 +459,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_2_off_dir:
-          name: OFF - before or after
+          name: 'Switch OFF: before or after that time?'
           default: after
           selector:
             select:
@@ -439,7 +469,8 @@ blueprint:
               - value: after
                 label: After
         slot_2_off_min:
-          name: OFF - minutes
+          name: 'Switch OFF: how many minutes?'
+          description: Use 0 to switch off exactly at that time.
           default: 0
           selector:
             number:
@@ -448,15 +479,16 @@ blueprint:
               mode: box
               unit_of_measurement: min
     slot_3_section:
-      name: Slot 3
+      name: Heating time 3
       icon: mdi:clock-outline
       collapsed: true
-      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
-        the slot. OFF must come after ON.
+      description: 'One time to switch the heating on and one time to switch it off. You need both, otherwise this
+        heating time does nothing. Leave ''Switch ON'' empty to skip it. Example: on 2 hours before Fajr and off
+        at Sunrise. Switch ON: Fajr, Before, 120. Switch OFF: Sunrise, After, 0.'
       input:
         slot_3_days:
-          name: Days this slot runs
-          description: The day the ON time falls on.
+          name: Days it runs
+          description: Tick the days it should start on. If it runs past midnight, it still finishes the next day.
           default:
           - mon
           - tue
@@ -484,7 +516,8 @@ blueprint:
               - value: sun
                 label: Sunday
         slot_3_on_entity:
-          name: ON - time sensor
+          name: 'Switch ON: which time?'
+          description: Pick a time sensor, for example Fajr Salaah.
           default: null
           selector:
             entity:
@@ -492,7 +525,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_3_on_dir:
-          name: ON - before or after
+          name: 'Switch ON: before or after that time?'
           default: before
           selector:
             select:
@@ -502,8 +535,8 @@ blueprint:
               - value: after
                 label: After
         slot_3_on_min:
-          name: ON - minutes
-          description: 120 = 2 hours.
+          name: 'Switch ON: how many minutes?'
+          description: For example 120 = 2 hours. Use 0 to switch on exactly at that time.
           default: 0
           selector:
             number:
@@ -512,8 +545,8 @@ blueprint:
               mode: box
               unit_of_measurement: min
         slot_3_off_entity:
-          name: OFF - time sensor
-          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          name: 'Switch OFF: which time?'
+          description: Pick a time sensor that comes after the ON time, for example Sunrise.
           default: null
           selector:
             entity:
@@ -521,7 +554,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_3_off_dir:
-          name: OFF - before or after
+          name: 'Switch OFF: before or after that time?'
           default: after
           selector:
             select:
@@ -531,7 +564,8 @@ blueprint:
               - value: after
                 label: After
         slot_3_off_min:
-          name: OFF - minutes
+          name: 'Switch OFF: how many minutes?'
+          description: Use 0 to switch off exactly at that time.
           default: 0
           selector:
             number:
@@ -540,15 +574,16 @@ blueprint:
               mode: box
               unit_of_measurement: min
     slot_4_section:
-      name: Slot 4
+      name: Heating time 4
       icon: mdi:clock-outline
       collapsed: true
-      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
-        the slot. OFF must come after ON.
+      description: 'One time to switch the heating on and one time to switch it off. You need both, otherwise this
+        heating time does nothing. Leave ''Switch ON'' empty to skip it. Example: on 2 hours before Fajr and off
+        at Sunrise. Switch ON: Fajr, Before, 120. Switch OFF: Sunrise, After, 0.'
       input:
         slot_4_days:
-          name: Days this slot runs
-          description: The day the ON time falls on.
+          name: Days it runs
+          description: Tick the days it should start on. If it runs past midnight, it still finishes the next day.
           default:
           - mon
           - tue
@@ -576,7 +611,8 @@ blueprint:
               - value: sun
                 label: Sunday
         slot_4_on_entity:
-          name: ON - time sensor
+          name: 'Switch ON: which time?'
+          description: Pick a time sensor, for example Fajr Salaah.
           default: null
           selector:
             entity:
@@ -584,7 +620,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_4_on_dir:
-          name: ON - before or after
+          name: 'Switch ON: before or after that time?'
           default: before
           selector:
             select:
@@ -594,8 +630,8 @@ blueprint:
               - value: after
                 label: After
         slot_4_on_min:
-          name: ON - minutes
-          description: 120 = 2 hours.
+          name: 'Switch ON: how many minutes?'
+          description: For example 120 = 2 hours. Use 0 to switch on exactly at that time.
           default: 0
           selector:
             number:
@@ -604,8 +640,8 @@ blueprint:
               mode: box
               unit_of_measurement: min
         slot_4_off_entity:
-          name: OFF - time sensor
-          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          name: 'Switch OFF: which time?'
+          description: Pick a time sensor that comes after the ON time, for example Sunrise.
           default: null
           selector:
             entity:
@@ -613,7 +649,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_4_off_dir:
-          name: OFF - before or after
+          name: 'Switch OFF: before or after that time?'
           default: after
           selector:
             select:
@@ -623,7 +659,8 @@ blueprint:
               - value: after
                 label: After
         slot_4_off_min:
-          name: OFF - minutes
+          name: 'Switch OFF: how many minutes?'
+          description: Use 0 to switch off exactly at that time.
           default: 0
           selector:
             number:
@@ -632,15 +669,16 @@ blueprint:
               mode: box
               unit_of_measurement: min
     slot_5_section:
-      name: Slot 5
+      name: Heating time 5
       icon: mdi:clock-outline
       collapsed: true
-      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
-        the slot. OFF must come after ON.
+      description: 'One time to switch the heating on and one time to switch it off. You need both, otherwise this
+        heating time does nothing. Leave ''Switch ON'' empty to skip it. Example: on 2 hours before Fajr and off
+        at Sunrise. Switch ON: Fajr, Before, 120. Switch OFF: Sunrise, After, 0.'
       input:
         slot_5_days:
-          name: Days this slot runs
-          description: The day the ON time falls on.
+          name: Days it runs
+          description: Tick the days it should start on. If it runs past midnight, it still finishes the next day.
           default:
           - mon
           - tue
@@ -668,7 +706,8 @@ blueprint:
               - value: sun
                 label: Sunday
         slot_5_on_entity:
-          name: ON - time sensor
+          name: 'Switch ON: which time?'
+          description: Pick a time sensor, for example Fajr Salaah.
           default: null
           selector:
             entity:
@@ -676,7 +715,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_5_on_dir:
-          name: ON - before or after
+          name: 'Switch ON: before or after that time?'
           default: before
           selector:
             select:
@@ -686,8 +725,8 @@ blueprint:
               - value: after
                 label: After
         slot_5_on_min:
-          name: ON - minutes
-          description: 120 = 2 hours.
+          name: 'Switch ON: how many minutes?'
+          description: For example 120 = 2 hours. Use 0 to switch on exactly at that time.
           default: 0
           selector:
             number:
@@ -696,8 +735,8 @@ blueprint:
               mode: box
               unit_of_measurement: min
         slot_5_off_entity:
-          name: OFF - time sensor
-          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          name: 'Switch OFF: which time?'
+          description: Pick a time sensor that comes after the ON time, for example Sunrise.
           default: null
           selector:
             entity:
@@ -705,7 +744,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_5_off_dir:
-          name: OFF - before or after
+          name: 'Switch OFF: before or after that time?'
           default: after
           selector:
             select:
@@ -715,7 +754,8 @@ blueprint:
               - value: after
                 label: After
         slot_5_off_min:
-          name: OFF - minutes
+          name: 'Switch OFF: how many minutes?'
+          description: Use 0 to switch off exactly at that time.
           default: 0
           selector:
             number:
@@ -724,15 +764,16 @@ blueprint:
               mode: box
               unit_of_measurement: min
     slot_6_section:
-      name: Slot 6
+      name: Heating time 6
       icon: mdi:clock-outline
       collapsed: true
-      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
-        the slot. OFF must come after ON.
+      description: 'One time to switch the heating on and one time to switch it off. You need both, otherwise this
+        heating time does nothing. Leave ''Switch ON'' empty to skip it. Example: on 2 hours before Fajr and off
+        at Sunrise. Switch ON: Fajr, Before, 120. Switch OFF: Sunrise, After, 0.'
       input:
         slot_6_days:
-          name: Days this slot runs
-          description: The day the ON time falls on.
+          name: Days it runs
+          description: Tick the days it should start on. If it runs past midnight, it still finishes the next day.
           default:
           - mon
           - tue
@@ -760,7 +801,8 @@ blueprint:
               - value: sun
                 label: Sunday
         slot_6_on_entity:
-          name: ON - time sensor
+          name: 'Switch ON: which time?'
+          description: Pick a time sensor, for example Fajr Salaah.
           default: null
           selector:
             entity:
@@ -768,7 +810,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_6_on_dir:
-          name: ON - before or after
+          name: 'Switch ON: before or after that time?'
           default: before
           selector:
             select:
@@ -778,8 +820,8 @@ blueprint:
               - value: after
                 label: After
         slot_6_on_min:
-          name: ON - minutes
-          description: 120 = 2 hours.
+          name: 'Switch ON: how many minutes?'
+          description: For example 120 = 2 hours. Use 0 to switch on exactly at that time.
           default: 0
           selector:
             number:
@@ -788,8 +830,8 @@ blueprint:
               mode: box
               unit_of_measurement: min
         slot_6_off_entity:
-          name: OFF - time sensor
-          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          name: 'Switch OFF: which time?'
+          description: Pick a time sensor that comes after the ON time, for example Sunrise.
           default: null
           selector:
             entity:
@@ -797,7 +839,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_6_off_dir:
-          name: OFF - before or after
+          name: 'Switch OFF: before or after that time?'
           default: after
           selector:
             select:
@@ -807,7 +849,8 @@ blueprint:
               - value: after
                 label: After
         slot_6_off_min:
-          name: OFF - minutes
+          name: 'Switch OFF: how many minutes?'
+          description: Use 0 to switch off exactly at that time.
           default: 0
           selector:
             number:
@@ -816,15 +859,16 @@ blueprint:
               mode: box
               unit_of_measurement: min
     slot_7_section:
-      name: Slot 7
+      name: Heating time 7
       icon: mdi:clock-outline
       collapsed: true
-      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
-        the slot. OFF must come after ON.
+      description: 'One time to switch the heating on and one time to switch it off. You need both, otherwise this
+        heating time does nothing. Leave ''Switch ON'' empty to skip it. Example: on 2 hours before Fajr and off
+        at Sunrise. Switch ON: Fajr, Before, 120. Switch OFF: Sunrise, After, 0.'
       input:
         slot_7_days:
-          name: Days this slot runs
-          description: The day the ON time falls on.
+          name: Days it runs
+          description: Tick the days it should start on. If it runs past midnight, it still finishes the next day.
           default:
           - mon
           - tue
@@ -852,7 +896,8 @@ blueprint:
               - value: sun
                 label: Sunday
         slot_7_on_entity:
-          name: ON - time sensor
+          name: 'Switch ON: which time?'
+          description: Pick a time sensor, for example Fajr Salaah.
           default: null
           selector:
             entity:
@@ -860,7 +905,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_7_on_dir:
-          name: ON - before or after
+          name: 'Switch ON: before or after that time?'
           default: before
           selector:
             select:
@@ -870,8 +915,8 @@ blueprint:
               - value: after
                 label: After
         slot_7_on_min:
-          name: ON - minutes
-          description: 120 = 2 hours.
+          name: 'Switch ON: how many minutes?'
+          description: For example 120 = 2 hours. Use 0 to switch on exactly at that time.
           default: 0
           selector:
             number:
@@ -880,8 +925,8 @@ blueprint:
               mode: box
               unit_of_measurement: min
         slot_7_off_entity:
-          name: OFF - time sensor
-          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          name: 'Switch OFF: which time?'
+          description: Pick a time sensor that comes after the ON time, for example Sunrise.
           default: null
           selector:
             entity:
@@ -889,7 +934,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_7_off_dir:
-          name: OFF - before or after
+          name: 'Switch OFF: before or after that time?'
           default: after
           selector:
             select:
@@ -899,7 +944,8 @@ blueprint:
               - value: after
                 label: After
         slot_7_off_min:
-          name: OFF - minutes
+          name: 'Switch OFF: how many minutes?'
+          description: Use 0 to switch off exactly at that time.
           default: 0
           selector:
             number:
@@ -908,15 +954,16 @@ blueprint:
               mode: box
               unit_of_measurement: min
     slot_8_section:
-      name: Slot 8
+      name: Heating time 8
       icon: mdi:clock-outline
       collapsed: true
-      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
-        the slot. OFF must come after ON.
+      description: 'One time to switch the heating on and one time to switch it off. You need both, otherwise this
+        heating time does nothing. Leave ''Switch ON'' empty to skip it. Example: on 2 hours before Fajr and off
+        at Sunrise. Switch ON: Fajr, Before, 120. Switch OFF: Sunrise, After, 0.'
       input:
         slot_8_days:
-          name: Days this slot runs
-          description: The day the ON time falls on.
+          name: Days it runs
+          description: Tick the days it should start on. If it runs past midnight, it still finishes the next day.
           default:
           - mon
           - tue
@@ -944,7 +991,8 @@ blueprint:
               - value: sun
                 label: Sunday
         slot_8_on_entity:
-          name: ON - time sensor
+          name: 'Switch ON: which time?'
+          description: Pick a time sensor, for example Fajr Salaah.
           default: null
           selector:
             entity:
@@ -952,7 +1000,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_8_on_dir:
-          name: ON - before or after
+          name: 'Switch ON: before or after that time?'
           default: before
           selector:
             select:
@@ -962,8 +1010,8 @@ blueprint:
               - value: after
                 label: After
         slot_8_on_min:
-          name: ON - minutes
-          description: 120 = 2 hours.
+          name: 'Switch ON: how many minutes?'
+          description: For example 120 = 2 hours. Use 0 to switch on exactly at that time.
           default: 0
           selector:
             number:
@@ -972,8 +1020,8 @@ blueprint:
               mode: box
               unit_of_measurement: min
         slot_8_off_entity:
-          name: OFF - time sensor
-          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          name: 'Switch OFF: which time?'
+          description: Pick a time sensor that comes after the ON time, for example Sunrise.
           default: null
           selector:
             entity:
@@ -981,7 +1029,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_8_off_dir:
-          name: OFF - before or after
+          name: 'Switch OFF: before or after that time?'
           default: after
           selector:
             select:
@@ -991,7 +1039,8 @@ blueprint:
               - value: after
                 label: After
         slot_8_off_min:
-          name: OFF - minutes
+          name: 'Switch OFF: how many minutes?'
+          description: Use 0 to switch off exactly at that time.
           default: 0
           selector:
             number:
@@ -1000,15 +1049,16 @@ blueprint:
               mode: box
               unit_of_measurement: min
     slot_9_section:
-      name: Slot 9
+      name: Heating time 9
       icon: mdi:clock-outline
       collapsed: true
-      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
-        the slot. OFF must come after ON.
+      description: 'One time to switch the heating on and one time to switch it off. You need both, otherwise this
+        heating time does nothing. Leave ''Switch ON'' empty to skip it. Example: on 2 hours before Fajr and off
+        at Sunrise. Switch ON: Fajr, Before, 120. Switch OFF: Sunrise, After, 0.'
       input:
         slot_9_days:
-          name: Days this slot runs
-          description: The day the ON time falls on.
+          name: Days it runs
+          description: Tick the days it should start on. If it runs past midnight, it still finishes the next day.
           default:
           - mon
           - tue
@@ -1036,7 +1086,8 @@ blueprint:
               - value: sun
                 label: Sunday
         slot_9_on_entity:
-          name: ON - time sensor
+          name: 'Switch ON: which time?'
+          description: Pick a time sensor, for example Fajr Salaah.
           default: null
           selector:
             entity:
@@ -1044,7 +1095,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_9_on_dir:
-          name: ON - before or after
+          name: 'Switch ON: before or after that time?'
           default: before
           selector:
             select:
@@ -1054,8 +1105,8 @@ blueprint:
               - value: after
                 label: After
         slot_9_on_min:
-          name: ON - minutes
-          description: 120 = 2 hours.
+          name: 'Switch ON: how many minutes?'
+          description: For example 120 = 2 hours. Use 0 to switch on exactly at that time.
           default: 0
           selector:
             number:
@@ -1064,8 +1115,8 @@ blueprint:
               mode: box
               unit_of_measurement: min
         slot_9_off_entity:
-          name: OFF - time sensor
-          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          name: 'Switch OFF: which time?'
+          description: Pick a time sensor that comes after the ON time, for example Sunrise.
           default: null
           selector:
             entity:
@@ -1073,7 +1124,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_9_off_dir:
-          name: OFF - before or after
+          name: 'Switch OFF: before or after that time?'
           default: after
           selector:
             select:
@@ -1083,7 +1134,8 @@ blueprint:
               - value: after
                 label: After
         slot_9_off_min:
-          name: OFF - minutes
+          name: 'Switch OFF: how many minutes?'
+          description: Use 0 to switch off exactly at that time.
           default: 0
           selector:
             number:
@@ -1092,15 +1144,16 @@ blueprint:
               mode: box
               unit_of_measurement: min
     slot_10_section:
-      name: Slot 10
+      name: Heating time 10
       icon: mdi:clock-outline
       collapsed: true
-      description: A slot needs both an ON sensor and an OFF sensor to run. Leave the ON sensor empty to ignore
-        the slot. OFF must come after ON.
+      description: 'One time to switch the heating on and one time to switch it off. You need both, otherwise this
+        heating time does nothing. Leave ''Switch ON'' empty to skip it. Example: on 2 hours before Fajr and off
+        at Sunrise. Switch ON: Fajr, Before, 120. Switch OFF: Sunrise, After, 0.'
       input:
         slot_10_days:
-          name: Days this slot runs
-          description: The day the ON time falls on.
+          name: Days it runs
+          description: Tick the days it should start on. If it runs past midnight, it still finishes the next day.
           default:
           - mon
           - tue
@@ -1128,7 +1181,8 @@ blueprint:
               - value: sun
                 label: Sunday
         slot_10_on_entity:
-          name: ON - time sensor
+          name: 'Switch ON: which time?'
+          description: Pick a time sensor, for example Fajr Salaah.
           default: null
           selector:
             entity:
@@ -1136,7 +1190,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_10_on_dir:
-          name: ON - before or after
+          name: 'Switch ON: before or after that time?'
           default: before
           selector:
             select:
@@ -1146,8 +1200,8 @@ blueprint:
               - value: after
                 label: After
         slot_10_on_min:
-          name: ON - minutes
-          description: 120 = 2 hours.
+          name: 'Switch ON: how many minutes?'
+          description: For example 120 = 2 hours. Use 0 to switch on exactly at that time.
           default: 0
           selector:
             number:
@@ -1156,8 +1210,8 @@ blueprint:
               mode: box
               unit_of_measurement: min
         slot_10_off_entity:
-          name: OFF - time sensor
-          description: Any sensor. e.g. Fajr slot can turn off at Sunrise.
+          name: 'Switch OFF: which time?'
+          description: Pick a time sensor that comes after the ON time, for example Sunrise.
           default: null
           selector:
             entity:
@@ -1165,7 +1219,7 @@ blueprint:
               - domain: sensor
                 device_class: timestamp
         slot_10_off_dir:
-          name: OFF - before or after
+          name: 'Switch OFF: before or after that time?'
           default: after
           selector:
             select:
@@ -1175,7 +1229,8 @@ blueprint:
               - value: after
                 label: After
         slot_10_off_min:
-          name: OFF - minutes
+          name: 'Switch OFF: how many minutes?'
+          description: Use 0 to switch off exactly at that time.
           default: 0
           selector:
             number:
