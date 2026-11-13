@@ -12,7 +12,7 @@ Go to Settings > Devices & services > Helpers > Create helper. The automation us
 | Pause timer (optional) | Timer | Leave as default |
 | Status line (optional) | Text | Set the **maximum length to 255** |
 
-The pause timer and the status line are optional. The status line is a Text helper where the automation writes a short sentence saying why the heating is on or off (for example "Off: room is warm enough (target 21°). Heating time until 07:10."). Show it on a dashboard. Make sure its maximum length is 255, otherwise the sentence is cut short.
+The pause timer and the status line are optional. The status line is a Text helper where the automation writes a short sentence saying why the heating is on or off (for example "Off: room is warm enough (target 21°). Heating time until 07:10." or "Off: no heating time now, keeping the room above 16°. Next: 10:48."). Show it on a dashboard. Make sure its maximum length is 255, otherwise the sentence is cut short.
 
 There is no counter to create. Heating times that overlap or touch join into one, so the heating doesn't switch off and on in the middle.
 
@@ -28,17 +28,31 @@ Make a new automation from the blueprint that controls a **spare switch or a tes
 - The OFF time must come after the ON time. For overnight heating, use something like Isha plus 300 minutes, not Fajr.
 - **Days it runs** are the days the heating time *starts*. If it runs past midnight, it still finishes the next day.
 - You can set up to 10 heating times. Leave 'Switch ON' empty to skip one.
+- Each heating time has two optional temperature boxes at the bottom:
+  - **Target temperature for this heating time:** the room is warmed to this during that heating time. It works even if you haven't ticked "Switch off when the room is warm enough" in section 3.
+  - **Temperature afterwards:** once the heating time has ended, the room is kept at this until the next heating time starts. It works even if you haven't ticked "Keep the room above a minimum".
+  - **0 means "use the general setting"** (the general target or the general minimum from section 3). To have no minimum after a heating time, type a low number such as 5.
+  - If two heating times overlap, the one that started most recently decides the target.
+  - The afterwards value comes from whichever heating time ended last, and carries across midnight. Example: Fajr heating time with afterwards 16 holds the room at 16 until the next heating time starts. Before the first heating time has ever ended, the general minimum applies.
+  - A heating time that runs past midnight keeps its own target and afterwards value on the other side of midnight.
 
 ## 5. Room temperature (all optional)
 **Important:** the target temperature does nothing unless you tick **Switch off when the room is warm enough**. If it is unticked, the heating simply runs for the whole heating time, whatever the room temperature is.
 
-- **Switch off when the room is warm enough:** the heating switches off when the warmest room reaches the target temperature. It comes back on when the coldest room is below the target and the warmest room is at least the gap (default 0.5) below it.
-- **Keep the room above a minimum:** between heating times, the heating comes on if the room falls below the minimum temperature.
+- **Which room temperature decides?** Choose how several rooms are combined:
+  - Current behaviour (default): starts when the coldest room is too cold, stops when the warmest room reaches the target.
+  - Coldest room: keeps heating until every room has reached the target (a warmer room can go well over).
+  - Warmest room: stops as soon as any room reaches the target.
+  - Average of all rooms.
+  - One chosen room: only that room counts. If it has no reading, the automation uses the current behaviour instead.
+  - For the last four, the heating comes back on once that temperature is more than the gap (default 0.5) below the target. Frost protection always watches the coldest room.
+- **Switch off when the room is warm enough:** the heating switches off when the room reaches the target temperature (using the choice above). It comes back on when the room is at least the gap (default 0.5) below it. A heating time with its own target uses that target instead.
+- **Keep the room above a minimum:** between heating times, the heating comes on if the room falls below the minimum temperature. A heating time with its own "temperature afterwards" uses that instead.
 - **Frost protection:** the heating comes on if the coldest room drops below the frost temperature, whatever else is set. Tick "Let 'Off' stop frost protection" if you want the dropdown's Off to win.
 - **Don't start heating when it's warm outside:** pick an outdoor sensor or a weather service, and a limit. The heating won't *start* if it's warmer than the limit outside. Heating that is already running is never stopped by this. Frost protection and the dropdown's On ignore it. If the reading is unavailable, the heating is not blocked. A weather service only updates as often as its integration refreshes, often every 10 to 60 minutes.
 - **Skip heating on days forecast to be warm:** pick a weather service that gives a daily forecast, and a limit (for example 20). Just before the heating would start, it checks today's forecast high. If it's at or above the limit, the heating doesn't start and the dropdown shows **Hold** until the next heating time. It checks once per heating time, never stops heating that's already running, and frost protection and the dropdown's On ignore it. If the forecast can't be fetched, the heating goes ahead as normal (Home Assistant may log an error).
 - **Room temperature sensors** can be temperature sensors or heating thermostats. Sensors that are unavailable are ignored, so if only one works, only that one is used.
-- Because the warmest room switches the heating off, a colder room can stay colder. Frost protection watches the coldest room.
+- With the default choice, the warmest room switches the heating off, so a colder room can stay colder. Pick "Coldest room" or "Average" if you want the cold room to catch up. Frost protection always watches the coldest room.
 
 ## 6. Taking control from your dashboard
 Put the dropdown (Helper 3) and the minutes (Helper 4) on a dashboard.
